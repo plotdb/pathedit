@@ -1,0 +1,154 @@
+doctype html
+html
+  include /../../static/assets/lib/ldui/pug/ldui.pug
+  head
+    +css("https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css")
+    +css("/assets/lib/ldui/ldui.min.css")
+    style(type="text/css"): :stylus
+      html,body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+  body: .p-4.h-100
+    +script("/assets/lib/ldui/ldui.min.js")
+    .mb-4
+      .btn.btn-outline-dark.mr-2(ld="move") move
+      .btn.btn-outline-dark.mr-2(ld="pen") pen
+      .btn.btn-outline-dark.mr-2(ld="anchor") anchor
+    svg.w-100.h-75.border()
+      path(fill="#fff",stroke="#000")
+      g
+        line(stroke="#000")
+        circle(fill="#fff", r="3", stroke="#000")
+      g
+        line(stroke="#000")
+        circle(fill="#fff", r="3", stroke="#000")
+
+    script: :lsc
+      pts = []
+      lc = {}
+      svg = ld$.find('svg', 0)
+      path = ld$.find('path', 0)
+      cs = ld$.find('circle')
+      ls = ld$.find('line')
+
+      delptr = (ptr) ->
+        if !~(i = pts.indexOf(ptr)) => return
+        pts.splice i, 1
+        ptr.circle.parentNode.removeChild(ptr.circle)
+        joinpts!
+
+      setptr = (ptr) ->
+        {x,y} = ptr
+        circle = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+        circle.setAttribute \cx, x
+        circle.setAttribute \cy, y
+        circle.setAttribute \r, 3
+        circle.setAttribute \fill, \#fff
+        circle.setAttribute \stroke, \#000
+        circle.ptr = ptr
+        ptr.circle = circle
+        svg.appendChild circle
+
+      joinpts = ->
+        ret = ""
+        if pts.length => ret += "M#{pts.0.x} #{pts.0.y}"
+        for i from 1 til pts.length =>
+          [p1, p2] = [pts[i - 1], pts[i]]
+          if p2.z => p2 = pts.0
+          ret += "C#{p1.x + p1.cx.1} #{p1.y + p1.cy.1} #{p2.x + p2.cx.0} #{p2.y + p2.cy.0} #{p2.x} #{p2.y}"
+        if lc.vp => ret += "#{if pts.length => \L else \M}#{lc.vp.x} #{lc.vp.y}"
+        path.setAttribute(\d, ret)
+
+      getloc = (e) ->
+        rbox = svg.getBoundingClientRect!
+        return {x: e.clientX - rbox.left, y: e.clientY - rbox.top}
+
+      svg.addEventListener \click, (e) ->
+        {x, y} = getloc e
+        if lc.tool == \pen =>
+          if pts.0 and ((pts.0.x - x) ** 2 + (pts.0.y - y) ** 2) < 9 and e.target.nodeName == \circle => 
+            pts.push {z: true}
+          else
+            if !pts.length or !pts[* - 1].z => 
+              pts.push ptr = {x, y, cx: [0, 0], cy: [0, 0]}
+              setptr ptr
+          joinpts!
+        else if lc.tool == \anchor =>
+          console.log lc.moved
+          if !lc.moved =>
+            lc.cptr.cx = [0,0]
+            lc.cptr.cy = [0,0]
+            setcp lc.cptr
+            joinpts!
+
+      svg.addEventListener \mouseup, (e) ->
+        lc.down = false
+        #e.preventDefault!
+        #e.stopPropagation!
+
+      setcp = (ptr) ->
+        {x,y} = ptr
+        ptr.circle.setAttribute \cx, x
+        ptr.circle.setAttribute \cy, y
+        cs.0.setAttribute \cx, (x + ptr.cx.0)
+        cs.0.setAttribute \cy, (y + ptr.cy.0)
+        cs.1.setAttribute \cx, (x + ptr.cx.1)
+        cs.1.setAttribute \cy, (y + ptr.cy.1)
+        ls.0.setAttribute \x1, (x + ptr.cx.0)
+        ls.0.setAttribute \y1, (y + ptr.cy.0)
+        ls.0.setAttribute \x2, (x)
+        ls.0.setAttribute \y2, (y)
+        ls.1.setAttribute \x1, (x + ptr.cx.1)
+        ls.1.setAttribute \y1, (y + ptr.cy.1)
+        ls.1.setAttribute \x2, (x)
+        ls.1.setAttribute \y2, (y)
+
+      svg.addEventListener \mousemove, (e) ->
+        lc.moved = true
+        {x, y} = getloc e
+        if lc.tool == \anchor and lc.down =>
+          if lc.cptr =>
+            ptr = lc.cptr
+            [dx, dy] = [x - ptr.x, y - ptr.y]
+            ptr.cx.0 = -dx
+            ptr.cx.1 = +dx
+            ptr.cy.0 = -dy
+            ptr.cy.1 = +dy
+            setcp ptr
+            joinpts!
+        else if lc.tool == \pen
+          lc.vp = {x: x, y: y}
+          if pts.0 and pts[* - 1].z => lc.vp = null
+          joinpts!
+        else if lc.tool == \move and lc.down =>
+          if lc.cptr =>
+            lc.cptr <<< {x, y}
+            setcp lc.cptr
+            joinpts!
+          else if lc.shape =>
+            lc.shape.setAttribute \transform, "translate(#{x - lc.dp.x}, #{y - lc.dp.y})"
+
+
+      svg.addEventListener \mousedown, (e) ->
+        lc.down = true
+        lc.moved = false
+        {x, y} = getloc e
+        lc.dp = {x, y}
+        if e.target.nodeName == \circle and e.target.ptr
+          if lc.tool in <[move anchor]> => lc.cptr = e.target.ptr
+          #else if lc.tool == \pen => delptr(e.target.ptr)
+        else => lc.cptr = null
+        if e.target.nodeName == \path and lc.tool == \move =>
+          lc.shape = e.target
+
+
+      view = new ldView do
+        root: document.body
+        action: click: do
+          move: -> lc.tool = \move
+          pen: -> lc.tool = \pen
+          anchor: -> lc.tool = \anchor
+      document.addEventListener \mouseup, -> lc.down = false
